@@ -1,3 +1,11 @@
+import torch
+import torch.nn as nn
+import torch
+from torch.autograd import Variable
+import copy
+import torch.nn.functional as F
+from torch.nn import CrossEntropyLoss, MSELoss
+
 def maml_train(model, optimizer, episodes=1000):
     for episode in range(episodes):
         # Sample task (vulnerability type)

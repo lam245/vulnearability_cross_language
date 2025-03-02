@@ -1,3 +1,11 @@
+import torch
+import torch.nn as nn
+import torch
+from torch.autograd import Variable
+import copy
+import torch.nn.functional as F
+from torch.nn import CrossEntropyLoss, MSELoss
+
 class PrototypicalPartsNetwork(nn.Module):
     def __init__(self, encoder, num_parts=5, hidden_dim=768):
         super(PrototypicalPartsNetwork, self).__init__()

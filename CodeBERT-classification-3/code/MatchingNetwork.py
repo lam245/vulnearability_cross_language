@@ -1,3 +1,10 @@
+import torch
+import torch.nn as nn
+import torch
+from torch.autograd import Variable
+import copy
+import torch.nn.functional as F
+from torch.nn import CrossEntropyLoss, MSELoss
 class MatchingNetwork(nn.Module):
     def __init__(self, encoder, embedding_dim=768):
         super(MatchingNetwork, self).__init__()
