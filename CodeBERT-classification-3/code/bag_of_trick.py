@@ -393,12 +393,13 @@ def set_seed(seed=42):
     torch.backends.cudnn.deterministic = True
 
 
-def create_few_shot_batches(dataset, n_way, n_shot, n_query, n_tasks):
+def create_few_shot_batches(support_dataset, query_dataset, n_way, n_shot, n_query, n_tasks):
     """
-    Create batches for few-shot learning
+    Create batches for few-shot learning using two datasets.
     
     Args:
-        dataset: Dataset containing code examples and labels
+        support_dataset: Dataset containing support examples (large C dataset)
+        query_dataset: Dataset containing query examples (small Python dataset)
         n_way: Number of classes per task
         n_shot: Number of support examples per class
         n_query: Number of query examples per class
@@ -407,18 +408,26 @@ def create_few_shot_batches(dataset, n_way, n_shot, n_query, n_tasks):
     Returns:
         list of (support_set, query_set) tuples
     """
-    examples_per_label = {}
+    support_examples_per_label = {}
+    query_examples_per_label = {}
     
-    # Group examples by label
-    for i, (input_ids, label) in enumerate(dataset):
+    # Group support examples by label
+    for i, (input_ids, label) in enumerate(support_dataset):
         label_idx = label.item()
-        if label_idx not in examples_per_label:
-            examples_per_label[label_idx] = []
-        examples_per_label[label_idx].append((input_ids, label))
+        if label_idx not in support_examples_per_label:
+            support_examples_per_label[label_idx] = []
+        support_examples_per_label[label_idx].append((input_ids, label))
     
-    # Filter labels with too few examples
-    valid_labels = [label for label, examples in examples_per_label.items() 
-                   if len(examples) >= n_shot + n_query]
+    # Group query examples by label
+    for i, (input_ids, label) in enumerate(query_dataset):
+        label_idx = label.item()
+        if label_idx not in query_examples_per_label:
+            query_examples_per_label[label_idx] = []
+        query_examples_per_label[label_idx].append((input_ids, label))
+    
+    # Filter labels with too few examples in the support set
+    valid_labels = [label for label, examples in support_examples_per_label.items() 
+                   if len(examples) >= n_shot]
     
     batches = []
     for _ in range(n_tasks):
@@ -434,23 +443,20 @@ def create_few_shot_batches(dataset, n_way, n_shot, n_query, n_tasks):
         query_labels = []
         
         for class_idx, label in enumerate(selected_labels):
-            # Get examples for this label
-            examples = examples_per_label[label]
-            
-            # Sample support and query examples
-            selected_examples = random.sample(examples, n_shot + n_query)
-            support_examples = selected_examples[:n_shot]
-            query_examples = selected_examples[n_shot:n_shot + n_query]
+            # Get support examples for this label
+            support_examples = random.sample(support_examples_per_label[label], n_shot)
             
             # Add to support set (with remapped labels to range 0...n_way-1)
             for input_ids, _ in support_examples:
                 support_inputs.append(input_ids)
                 support_labels.append(class_idx)
                 
-            # Add to query set
-            for input_ids, _ in query_examples:
-                query_inputs.append(input_ids)
-                query_labels.append(class_idx)
+            # Get query examples for this label
+            if label in query_examples_per_label:
+                query_examples = random.sample(query_examples_per_label[label], n_query)
+                for input_ids, _ in query_examples:
+                    query_inputs.append(input_ids)
+                    query_labels.append(class_idx)
         
         # Convert to tensors
         support_inputs = torch.stack(support_inputs)
@@ -463,12 +469,13 @@ def create_few_shot_batches(dataset, n_way, n_shot, n_query, n_tasks):
     return batches
 
 
-def train_few_shot(args, train_dataset, model, tokenizer, model_type):
-    """Train using few-shot learning approach"""
+def train_few_shot(args, support_dataset, query_dataset, model, tokenizer, model_type):
+    """Train using few-shot learning approach with two datasets"""
     
     # Create few-shot batches
     few_shot_batches = create_few_shot_batches(
-        train_dataset, 
+        support_dataset, 
+        query_dataset,
         args.n_way, 
         args.n_shot, 
         args.n_query,
@@ -822,6 +829,8 @@ def main():
     ## Required parameters
     parser.add_argument("--train_data_file", default=None, type=str, required=True,
                         help="The input training data file (a json file).")
+    parser.add_argument("--support_data_file", default=None, type=str, required=True,
+                        help="The input support data file (a json file).")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
     parser.add_argument("--eval_data_file", default=None, type=str,
@@ -919,8 +928,9 @@ def main():
     
     # Training
     if args.do_train:
+        support_dataset = TextDataset(tokenizer, args, args.support_data_file)
         train_dataset = TextDataset(tokenizer, args, args.train_data_file)
-        train_few_shot(args, train_dataset, model, tokenizer, args.model_type)
+        train_few_shot(args, support_dataset, train_dataset, model, tokenizer, args.model_type)
     
     # Evaluation
     results = {}
